@@ -1,0 +1,36 @@
+### Maven / build output ###
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### Compiled files ###
+*.class
+*.jar
+*.war
+
+### Logs ###
+*.log
+
+### Secrets / environment ###
+.env
+*.env
+!*.env.example
+
+### IDEs ###
+.idea/
+*.iml
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+*.launch
+.factorypath
+
+### macOS / OS cruft ###
+.DS_Store
+Thumbs.db
+
+### Misc ###
+HELP.md
