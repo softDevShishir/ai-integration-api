@@ -38,11 +38,11 @@ public class ClaudeService {
 
     /**
      * Sends the given prompt to Claude and returns the concatenated text of
-     * the response.
+     * the response together with the model and token usage.
      *
      * @throws ClaudeApiException if the call to Claude fails for any reason
      */
-    public String ask(String prompt) {
+    public AiResponse ask(String prompt) {
         MessageCreateParams params = MessageCreateParams.builder()
                 .model(Model.of(model))
                 .maxTokens(maxTokens)
@@ -61,7 +61,8 @@ public class ClaudeService {
                 throw new ClaudeApiException("Claude returned an empty response");
             }
 
-            return text;
+            return new AiResponse(text, response.model().asString(),
+                    response.usage().inputTokens(), response.usage().outputTokens());
         } catch (AnthropicServiceException e) {
             log.error("Claude API returned an error status", e);
             throw new ClaudeApiException("Claude API request failed: " + e.getMessage(), e);

@@ -6,12 +6,12 @@ prompts to the [Claude API](https://docs.claude.com/) via the official
 
 ## Features
 
-- `POST /api/ask` — accepts `{"prompt": "..."}`, calls Claude, returns `{"response": "..."}`
+- `POST /api/ask` — accepts `{"prompt": "...", "provider": "claude"|"gemini"}`, calls Claude (default) or Gemini, returns the answer plus provider, model, token counts and timing
 - JWT Bearer authentication on every endpoint except token issuance
 - `POST /api/auth/token` — issues a test JWT (demo-only helper, see [Security notes](#security-notes))
-- Centralized error handling: `400` for bad input, `401` for missing/invalid tokens, `502` for Claude API failures
+- Centralized error handling: `400` for bad input, `401` for missing/invalid tokens, `502` for Claude/Gemini API failures
 - Dockerfile + docker-compose for containerized local/deployment use
-- `ANTHROPIC_API_KEY` and JWT secret are read from environment variables — nothing sensitive is hardcoded for production use
+- `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` and JWT secret are read from environment variables — nothing sensitive is hardcoded for production use
 
 ## Project structure
 
@@ -26,20 +26,23 @@ claude-integration-api/
     │   ├── ClaudeIntegrationApiApplication.java
     │   ├── config/
     │   │   ├── SecurityConfig.java        # JWT filter chain, stateless sessions
-    │   │   └── AnthropicConfig.java        # AnthropicClient bean (reads ANTHROPIC_API_KEY)
+    │   │   ├── AnthropicConfig.java        # AnthropicClient bean (reads ANTHROPIC_API_KEY)
+    │   │   └── GeminiConfig.java           # Gemini Client bean (reads GEMINI_API_KEY)
     │   ├── controller/
     │   │   ├── AskController.java          # POST /api/ask
     │   │   └── AuthController.java         # POST /api/auth/token (demo helper)
     │   ├── dto/                            # Request/response records
     │   ├── exception/
     │   │   ├── ClaudeApiException.java
+    │   │   ├── GeminiApiException.java
     │   │   └── GlobalExceptionHandler.java # Maps exceptions -> HTTP status + JSON body
     │   ├── security/
     │   │   ├── JwtService.java             # Issue/validate JWTs
     │   │   ├── JwtAuthenticationFilter.java
     │   │   └── RestAuthenticationEntryPoint.java # JSON 401 responses
     │   └── service/
-    │       └── ClaudeService.java          # Wraps the Anthropic SDK call
+    │       ├── ClaudeService.java          # Wraps the Anthropic SDK call
+    │       └── GeminiService.java          # Wraps the Google Gen AI SDK call
     └── test/java/com/example/claudeintegration/
         ├── ClaudeIntegrationApiApplicationTests.java
         └── security/JwtServiceTest.java
@@ -50,6 +53,7 @@ claude-integration-api/
 - JDK 21
 - Maven 3.9+ (or use Docker, which doesn't require a local Maven install)
 - An [Anthropic API key](https://console.anthropic.com/)
+- A [Gemini API key](https://aistudio.google.com/apikey) (only needed for `"provider": "gemini"`)
 - Docker + Docker Compose (optional, for containerized runs)
 
 ## Configuration
@@ -61,6 +65,9 @@ All configuration is environment-variable driven (see `src/main/resources/applic
 | `ANTHROPIC_API_KEY`     | **Yes**  | *(none)*                                                               | Your Claude API key                       |
 | `ANTHROPIC_MODEL`       | No       | `claude-opus-4-8`                                                      | Claude model used for `/api/ask`          |
 | `ANTHROPIC_MAX_TOKENS`  | No       | `2048`                                                                  | Max output tokens per request             |
+| `GEMINI_API_KEY`        | For Gemini | *(none)*                                                             | Your Gemini API key                       |
+| `GEMINI_MODEL`          | No       | `gemini-3.8-flash`                                                     | Gemini model used for `provider: gemini`. Use `gemini-3.5-flash-lite` for faster, lighter responses |
+| `GEMINI_MAX_TOKENS`     | No       | `2048`                                                                  | Max output tokens per Gemini request      |
 | `JWT_SECRET`            | No*      | `this-is-a-hardcoded-test-secret-key-for-dev-only-change-me-32bytes`   | HMAC signing key for JWTs (≥32 bytes)     |
 | `JWT_EXPIRATION_MS`     | No       | `3600000` (1 hour)                                                      | Issued-token lifetime in milliseconds     |
 | `SERVER_PORT`           | No       | `8080`                                                                  | HTTP port                                 |
@@ -68,13 +75,15 @@ All configuration is environment-variable driven (see `src/main/resources/applic
 \* The default `JWT_SECRET` is fine for local testing but **must** be overridden with a
 real, secret value before this service is exposed anywhere beyond your own machine.
 
-Copy `.env.example` to `.env` and fill in your key if you want to use `docker compose --env-file`,
-or just export the variables directly in your shell.
+For local runs, copy `.env.example` to `.env` and fill in your keys. Both `mvn spring-boot:run`
+(via `spring.config.import`) and `docker compose` read `.env` from the project root automatically.
+Variables exported in your shell take precedence over `.env`. `.env` is git-ignored — never commit it.
 
 ## Running locally with Maven
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-your-key-here
+export GEMINI_API_KEY=your-gemini-api-key-here
 mvn spring-boot:run
 ```
 
@@ -89,47 +98,49 @@ java -jar target/claude-integration-api.jar
 
 ## Running with Docker Compose
 
+Both Docker options read your keys from `.env`, so create it first:
+
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-your-key-here
+cp .env.example .env   # then edit .env and fill in your keys
+```
+
+```bash
 docker compose up --build
 ```
 
-Or with an `.env` file (copied from `.env.example`):
-
-```bash
-docker compose --env-file .env up --build
-```
+Compose loads `.env` via `env_file:` in `docker-compose.yml`, so it fails with
+`env file .env not found` if the file is missing. After editing `.env`, restart with
+`docker compose up -d --force-recreate` (no rebuild needed). Stop with `docker compose down`.
 
 ## Running with plain Docker
 
 ```bash
 docker build -t claude-integration-api .
-docker run -p 8080:8080 \
-  -e ANTHROPIC_API_KEY=sk-ant-your-key-here \
-  -e JWT_SECRET=a-real-secret-at-least-32-bytes-long \
-  claude-integration-api
+docker run --rm -p 8080:8080 --env-file .env claude-integration-api
 ```
+
+`--env-file` passes every `KEY=value` line from `.env` into the container. Write values without
+quotes: Docker passes quotes through literally. Override a single value with `-e`, e.g.
+`-e GEMINI_MODEL=gemini-3.8-flash-lite`.
+
+`.env` is listed in `.dockerignore`, so it is never copied into the image — keys are only
+supplied when the container starts.
 
 ## Using the API
 
 ### 1. Get a test JWT
 
 ```bash
-curl -s -X POST http://localhost:8080/api/auth/token \
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"username": "demo-user"}'
-```
+  -d '{"username": "demo-user"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
 
-Response:
-
-```json
-{"token": "eyJhbGciOiJIUzI1NiJ9..."}
+echo "$TOKEN"
 ```
 
 ### 2. Call `/api/ask` with the token
 
 ```bash
-TOKEN="eyJhbGciOiJIUzI1NiJ9..."
 
 curl -s -X POST http://localhost:8080/api/ask \
   -H "Content-Type: application/json" \
@@ -140,7 +151,32 @@ curl -s -X POST http://localhost:8080/api/ask \
 Response:
 
 ```json
-{"response": "A REST API is an interface that lets applications communicate over HTTP using standard methods like GET and POST to access and manipulate resources."}
+{
+  "response": "A REST API is an interface that lets applications communicate over HTTP using standard methods like GET and POST to access and manipulate resources.",
+  "provider": "claude",
+  "model": "claude-opus-4-8",
+  "inputTokens": 18,
+  "outputTokens": 31,
+  "durationMs": 1840
+}
+```
+
+| Field          | Description                                                                                  |
+|----------------|----------------------------------------------------------------------------------------------|
+| `response`     | The model's text answer                                                                       |
+| `provider`     | Which provider answered: `claude` or `gemini`                                                 |
+| `model`        | The model that produced the answer (as reported by the provider)                              |
+| `inputTokens`  | Tokens in your prompt                                                                         |
+| `outputTokens` | Tokens generated. For Gemini this includes internal "thinking" tokens, which are billed as output |
+| `durationMs`   | Time spent waiting for the provider, in milliseconds                                          |
+
+To use Gemini instead, add `"provider": "gemini"` (omit it, or use `"claude"`, for Claude):
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "Explain what a REST API is in one sentence.", "provider": "gemini"}'
 ```
 
 ### Error responses
@@ -150,7 +186,109 @@ Response:
 | Missing/invalid/expired JWT        | `401`  | `{"error": "Unauthorized", "message": "Missing or invalid JWT Bearer token", ...}` |
 | Blank/missing `prompt` field       | `400`  | `{"error": "Bad Request", "message": "prompt: prompt must not be blank", ...}` |
 | Malformed JSON body                | `400`  | `{"error": "Bad Request", "message": "Malformed or missing JSON request body", ...}` |
-| Claude API call fails              | `502`  | `{"error": "Bad Gateway", "message": "...", ...}`                   |
+| Invalid `provider` value           | `400`  | `{"error": "Bad Request", "message": "provider: provider must be either \"claude\" or \"gemini\"", ...}` |
+| Claude/Gemini API call fails       | `502`  | `{"error": "Bad Gateway", "message": "...", ...}`                   |
+
+## Full local test with curl
+
+A copy-paste walkthrough. Start the app first (`mvn spring-boot:run` or `docker compose up --build`),
+then run these in a second terminal.
+
+### 1. Check the app is up
+
+```bash
+curl -s http://localhost:8080/actuator/health
+```
+
+Expected: `{"status":"UP",...}`
+
+### 2. Get a JWT and save it in `$TOKEN`
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"username": "demo-user"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+
+echo "$TOKEN"
+```
+
+The token is valid for 1 hour (`JWT_EXPIRATION_MS`). If later requests return `401`, run this step again.
+
+### 3. Ask Claude (default provider)
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "Say hello in one sentence."}'
+```
+
+### 4. Ask Gemini
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "Say hello in one sentence.", "provider": "gemini"}'
+```
+
+Expected for both: `{"response":"...","provider":"...","model":"...","inputTokens":...,"outputTokens":...,"durationMs":...}`
+
+To see just the stats without the long answer text (requires [`jq`](https://jqlang.org/)):
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "What is Docker?", "provider": "gemini"}' \
+  | jq 'del(.response)'
+```
+
+### 5. Check the error cases
+
+```bash
+# No token -> 401
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello"}'
+
+# Blank prompt -> 400
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": ""}'
+
+# Unknown provider -> 400
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "Hello", "provider": "openai"}'
+```
+
+Add `-w '\nHTTP %{http_code}\n'` to any command to also print the status code.
+
+### 6. List the Gemini models your key can use
+
+This calls Google directly (not this app) and does not count against your generation quota.
+The first line loads the variables from `.env` into your shell so `$GEMINI_API_KEY` is set:
+
+```bash
+set -a; . ./.env; set +a
+
+curl -s -H "x-goog-api-key: $GEMINI_API_KEY" \
+  "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100" \
+  | grep -oE '"name": "models/[^"]+"' | sed 's/.*models\///; s/"$//'
+```
+
+To switch models, set `GEMINI_MODEL` (or `ANTHROPIC_MODEL` for Claude) in `.env` to one of the listed
+names (without the `models/` prefix) and restart the app. A model variable exported in your shell
+overrides `.env`, so run `unset GEMINI_MODEL` if the change doesn't take effect.
+
+### Free-tier note
+
+The Gemini free tier is small (roughly 20 requests/day for `gemini-3.8-flash`; see your project's
+limits in Google AI Studio). Once exceeded, `/api/ask` returns `502` with a `429 RESOURCE_EXHAUSTED`
+message from Google — that's quota, not a bug.
 
 ## Running tests
 
@@ -169,7 +307,7 @@ mvn test
 - Change `JWT_SECRET` to a strong, randomly generated value (≥32 bytes) outside of local
   development, and supply it only via environment variables or a secrets manager — never
   commit it to source control.
-- `ANTHROPIC_API_KEY` is read from the environment and is never logged or returned in any
+- `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` are read from the environment and are never logged or returned in any
   API response.
 - All endpoints run over HTTP in this sample; put a TLS-terminating proxy/load balancer in
   front of it for anything beyond local development.

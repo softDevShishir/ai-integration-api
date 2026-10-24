@@ -44,6 +44,13 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("Bad Gateway", ex.getMessage(), HttpStatus.BAD_GATEWAY.value()));
     }
 
+    @ExceptionHandler(GeminiApiException.class)
+    public ResponseEntity<ErrorResponse> handleGeminiApi(GeminiApiException ex) {
+        log.error("Gemini API call failed", ex);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ErrorResponse("Bad Gateway", ex.getMessage(), HttpStatus.BAD_GATEWAY.value()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         log.error("Unhandled exception", ex);
