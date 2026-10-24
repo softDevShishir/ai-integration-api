@@ -3,6 +3,7 @@ package com.example.claudeintegration.exception;
 import com.example.claudeintegration.dto.ErrorResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -49,6 +50,14 @@ public class GlobalExceptionHandler {
         log.error("Gemini API call failed", ex);
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(new ErrorResponse("Bad Gateway", ex.getMessage(), HttpStatus.BAD_GATEWAY.value()));
+    }
+
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleDataAccess(DataAccessException ex) {
+        log.error("Product database query failed", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse("Service Unavailable", "Product database is unavailable",
+                        HttpStatus.SERVICE_UNAVAILABLE.value()));
     }
 
     @ExceptionHandler(Exception.class)

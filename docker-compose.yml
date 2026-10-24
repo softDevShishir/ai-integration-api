@@ -1,4 +1,24 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: claude-integration-postgres
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    ports:
+      # Host port for this database, so `mvn spring-boot:run` on the host can use it too.
+      # Set DB_HOST_PORT (and the port in DB_URL) if 5432 is already taken on your machine.
+      - "${DB_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   claude-integration-api:
     build: .
     image: claude-integration-api:latest
@@ -10,6 +30,7 @@ services:
     env_file:
       - .env
     environment:
+      DEFAULT_PROVIDER: ${DEFAULT_PROVIDER:-claude}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       ANTHROPIC_MAX_TOKENS: ${ANTHROPIC_MAX_TOKENS:-2048}
@@ -18,7 +39,15 @@ services:
       GEMINI_MAX_TOKENS: ${GEMINI_MAX_TOKENS:-2048}
       JWT_SECRET: ${JWT_SECRET:-this-is-a-hardcoded-test-secret-key-for-dev-only-change-me-32bytes}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
+      # Inside the compose network the database host is the `postgres` service, not localhost,
+      # so DB_URL is fixed here rather than taken from .env.
+      DB_URL: jdbc:postgresql://postgres:5432/shop
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-secret}
       SERVER_PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
@@ -26,3 +55,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  postgres-data:
