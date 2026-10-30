@@ -52,6 +52,13 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("Bad Gateway", ex.getMessage(), HttpStatus.BAD_GATEWAY.value()));
     }
 
+    @ExceptionHandler(OpenAiApiException.class)
+    public ResponseEntity<ErrorResponse> handleOpenAiApi(OpenAiApiException ex) {
+        log.error("OpenAI API call failed", ex);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ErrorResponse("Bad Gateway", ex.getMessage(), HttpStatus.BAD_GATEWAY.value()));
+    }
+
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ErrorResponse> handleDataAccess(DataAccessException ex) {
         log.error("Product database query failed", ex);

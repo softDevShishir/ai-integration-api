@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -23,6 +24,7 @@ class RagServiceTest {
     private RetrievalService retrievalService;
     private GeminiService geminiService;
     private ClaudeService claudeService;
+    private OpenAiService openAiService;
     private RagService ragService;
 
     @BeforeEach
@@ -30,12 +32,15 @@ class RagServiceTest {
         retrievalService = mock(RetrievalService.class);
         geminiService = mock(GeminiService.class);
         claudeService = mock(ClaudeService.class);
-        ragService = new RagService(retrievalService, geminiService, claudeService);
+        openAiService = mock(OpenAiService.class);
+        ragService = new RagService(retrievalService, geminiService, claudeService, openAiService);
 
         when(geminiService.ask(anyString(), anyString()))
                 .thenReturn(new AiResponse("Yes, we do.", "gemini-test", 120, 10));
         when(claudeService.ask(anyString(), anyString()))
                 .thenReturn(new AiResponse("Yes, we do (Claude).", "claude-test", 120, 10));
+        when(openAiService.ask(anyString(), anyString()))
+                .thenReturn(new AiResponse("Yes, we do (OpenAI).", "openai-test", 120, 10));
     }
 
     @Test
@@ -46,11 +51,11 @@ class RagServiceTest {
                 new Product(4, "Kids School Shoes", "Durable black school shoes.",
                         "shoes", new BigDecimal("1290.00"), false)));
 
-        AiResponse response = ragService.answer(QUESTION, false);
+        AiResponse response = ragService.answer(QUESTION, "gemini");
 
         ArgumentCaptor<String> systemPrompt = ArgumentCaptor.forClass(String.class);
         verify(geminiService).ask(systemPrompt.capture(), eq(QUESTION));
-        verifyNoInteractions(claudeService);
+        verifyNoInteractions(claudeService, openAiService);
 
         assertThat(systemPrompt.getValue())
                 .startsWith(RagService.INSTRUCTIONS)
@@ -68,7 +73,7 @@ class RagServiceTest {
     void tellsClaudeNothingWasFoundWhenRetrievalIsEmpty() {
         when(retrievalService.search(QUESTION)).thenReturn(List.of());
 
-        ragService.answer(QUESTION, false);
+        ragService.answer(QUESTION, "gemini");
 
         ArgumentCaptor<String> systemPrompt = ArgumentCaptor.forClass(String.class);
         verify(geminiService).ask(systemPrompt.capture(), eq(QUESTION));
@@ -82,10 +87,30 @@ class RagServiceTest {
     void sendsSameSystemPromptToClaudeWhenRequested() {
         when(retrievalService.search(QUESTION)).thenReturn(List.of());
 
-        AiResponse response = ragService.answer(QUESTION, true);
+        AiResponse response = ragService.answer(QUESTION, "claude");
 
         verify(claudeService).ask(ragService.buildSystemPrompt(List.of()), QUESTION);
-        verifyNoInteractions(geminiService);
+        verifyNoInteractions(geminiService, openAiService);
         assertThat(response.model()).isEqualTo("claude-test");
+    }
+
+    @Test
+    void sendsSameSystemPromptToOpenAiWhenRequested() {
+        when(retrievalService.search(QUESTION)).thenReturn(List.of());
+
+        AiResponse response = ragService.answer(QUESTION, "openai");
+
+        verify(openAiService).ask(ragService.buildSystemPrompt(List.of()), QUESTION);
+        verifyNoInteractions(geminiService, claudeService);
+        assertThat(response.model()).isEqualTo("openai-test");
+    }
+
+    @Test
+    void rejectsUnknownProvider() {
+        when(retrievalService.search(QUESTION)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> ragService.answer(QUESTION, "mistral"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(geminiService, claudeService, openAiService);
     }
 }

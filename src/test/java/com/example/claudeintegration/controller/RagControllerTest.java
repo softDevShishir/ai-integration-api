@@ -1,6 +1,7 @@
 package com.example.claudeintegration.controller;
 
 import com.example.claudeintegration.config.SecurityConfig;
+import com.example.claudeintegration.exception.OpenAiApiException;
 import com.example.claudeintegration.security.JwtService;
 import com.example.claudeintegration.security.RestAuthenticationEntryPoint;
 import com.example.claudeintegration.service.AiResponse;
@@ -64,7 +65,7 @@ class RagControllerTest {
 
     @Test
     void returns200UsingDefaultProviderWhenNoneGiven() throws Exception {
-        when(ragService.answer(anyString(), eq(true)))
+        when(ragService.answer(anyString(), eq("claude")))
                 .thenReturn(new AiResponse("Yes, the Bata Comfit Running Shoes cost 3499 BDT.",
                         "claude-test", 250, 20));
 
@@ -83,7 +84,7 @@ class RagControllerTest {
 
     @Test
     void usesGeminiWhenProviderIsGemini() throws Exception {
-        when(ragService.answer(anyString(), eq(false)))
+        when(ragService.answer(anyString(), eq("gemini")))
                 .thenReturn(new AiResponse("Yes, we have running shoes.", "gemini-test", 250, 12));
 
         mockMvc.perform(post("/api/ask/rag")
@@ -93,6 +94,49 @@ class RagControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.provider").value("gemini"))
                 .andExpect(jsonPath("$.model").value("gemini-test"));
+    }
+
+    @Test
+    void usesOpenAiWhenProviderIsOpenAi() throws Exception {
+        when(ragService.answer(anyString(), eq("openai")))
+                .thenReturn(new AiResponse("Yes, we have running shoes.", "openai-test", 250, 15));
+
+        mockMvc.perform(post("/api/ask/rag")
+                        .header(HttpHeaders.AUTHORIZATION, bearerToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\": \"Do you have running shoes?\", \"provider\": \"OpenAI\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provider").value("openai"))
+                .andExpect(jsonPath("$.model").value("openai-test"))
+                .andExpect(jsonPath("$.outputTokens").value(15));
+    }
+
+    @Test
+    void returns400ListingValidProvidersForUnknownProvider() throws Exception {
+        mockMvc.perform(post("/api/ask/rag")
+                        .header(HttpHeaders.AUTHORIZATION, bearerToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\": \"Do you have running shoes?\", \"provider\": \"mistral\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("provider: provider must be one of \"claude\", \"gemini\" or \"openai\""));
+
+        verifyNoInteractions(ragService);
+    }
+
+    @Test
+    void returns502WhenOpenAiFails() throws Exception {
+        when(ragService.answer(anyString(), eq("openai")))
+                .thenThrow(new OpenAiApiException("OpenAI API request failed: 500"));
+
+        mockMvc.perform(post("/api/ask/rag")
+                        .header(HttpHeaders.AUTHORIZATION, bearerToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\": \"Do you have running shoes?\", \"provider\": \"openai\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("Bad Gateway"))
+                .andExpect(jsonPath("$.message").value("OpenAI API request failed: 500"))
+                .andExpect(jsonPath("$.status").value(502));
     }
 
     private String bearerToken() {

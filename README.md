@@ -2,19 +2,19 @@
 
 A Spring Boot 3 (Java 21) REST API that authenticates requests with JWT and forwards
 prompts to Claude (via the official [Anthropic Java SDK](https://github.com/anthropics/anthropic-sdk-java))
-or Gemini (via the [Google Gen AI SDK](https://github.com/googleapis/java-genai)), selectable per
-request. It also offers a retrieval-augmented generation (RAG) endpoint that answers questions
+Gemini (via the [Google Gen AI SDK](https://github.com/googleapis/java-genai)) or OpenAI (via the
+official [OpenAI Java SDK](https://github.com/openai/openai-java)), selectable per request. It also offers a retrieval-augmented generation (RAG) endpoint that answers questions
 from a PostgreSQL product catalogue.
 
 ## Features
 
-- `POST /api/ask` — accepts `{"prompt": "...", "provider": "claude"|"gemini"}`, calls Claude or Gemini (default set by `DEFAULT_PROVIDER`, Claude out of the box), returns the answer plus provider, model, token counts and timing
+- `POST /api/ask` — accepts `{"prompt": "...", "provider": "claude"|"gemini"|"openai"}`, calls Claude, Gemini or OpenAI (default set by `DEFAULT_PROVIDER`, Claude out of the box), returns the answer plus provider, model, token counts and timing
 - `POST /api/ask/rag` — answers customer questions from a PostgreSQL product catalogue using retrieval-augmented generation (see [RAG endpoint](#rag-endpoint))
 - JWT Bearer authentication on every endpoint except token issuance
 - `POST /api/auth/token` — issues a test JWT (demo-only helper, see [Security notes](#security-notes))
-- Centralized error handling: `400` for bad input, `401` for missing/invalid tokens, `502` for Claude/Gemini API failures, `503` when the product database is unreachable
+- Centralized error handling: `400` for bad input, `401` for missing/invalid tokens, `502` for Claude/Gemini/OpenAI API failures, `503` when the product database is unreachable
 - Dockerfile + docker-compose for containerized local/deployment use
-- `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` and JWT secret are read from environment variables — nothing sensitive is hardcoded for production use
+- `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY` and JWT secret are read from environment variables — nothing sensitive is hardcoded for production use
 
 ## Project structure
 
@@ -30,7 +30,8 @@ ai-integration-api/
     │   ├── config/
     │   │   ├── SecurityConfig.java        # JWT filter chain, stateless sessions
     │   │   ├── AnthropicConfig.java        # AnthropicClient bean (reads ANTHROPIC_API_KEY)
-    │   │   └── GeminiConfig.java           # Gemini Client bean (reads GEMINI_API_KEY)
+    │   │   ├── GeminiConfig.java           # Gemini Client bean (reads GEMINI_API_KEY)
+    │   │   └── OpenAiConfig.java           # OpenAIClient bean (reads OPENAI_API_KEY)
     │   ├── controller/
     │   │   ├── AskController.java          # POST /api/ask
     │   │   ├── RagController.java          # POST /api/ask/rag
@@ -39,6 +40,7 @@ ai-integration-api/
     │   ├── exception/
     │   │   ├── ClaudeApiException.java
     │   │   ├── GeminiApiException.java
+    │   │   ├── OpenAiApiException.java
     │   │   └── GlobalExceptionHandler.java # Maps exceptions -> HTTP status + JSON body
     │   ├── security/
     │   │   ├── JwtService.java             # Issue/validate JWTs
@@ -47,16 +49,19 @@ ai-integration-api/
     │   └── service/
     │       ├── ClaudeService.java          # Wraps the Anthropic SDK call (optional system prompt)
     │       ├── GeminiService.java          # Wraps the Google Gen AI SDK call (optional system prompt)
+    │       ├── OpenAiService.java          # Wraps the OpenAI SDK Chat Completions call (optional system prompt)
     │       ├── ProviderResolver.java       # Request provider, else DEFAULT_PROVIDER
     │       ├── RetrievalService.java       # PostgreSQL full-text product search
-    │       └── RagService.java             # Retrieve -> build system prompt -> ask Gemini/Claude
+    │       └── RagService.java             # Retrieve -> build system prompt -> ask Claude/Gemini/OpenAI
     ├── main/resources/
     │   ├── application.properties
     │   ├── schema.sql                      # products table + full-text index
     │   └── data.sql                        # 15 seed products (prices in BDT)
     └── test/java/com/example/claudeintegration/
         ├── ClaudeIntegrationApiApplicationTests.java
+        ├── controller/AskControllerTest.java
         ├── controller/RagControllerTest.java
+        ├── service/OpenAiServiceTest.java
         ├── service/RagServiceTest.java
         ├── service/ProviderResolverTest.java
         └── security/JwtServiceTest.java
@@ -68,6 +73,7 @@ ai-integration-api/
 - Maven 3.9+ (or use Docker, which doesn't require a local Maven install)
 - An [Anthropic API key](https://console.anthropic.com/)
 - A [Gemini API key](https://aistudio.google.com/apikey) (only needed for `"provider": "gemini"`)
+- An [OpenAI API key](https://platform.openai.com/api-keys) (only needed for `"provider": "openai"`)
 - PostgreSQL 12+ with a `shop` database — the app connects to it on startup. `docker compose` starts one for you
 - Docker + Docker Compose (optional, for containerized runs)
 
@@ -77,13 +83,16 @@ All configuration is environment-variable driven (see `src/main/resources/applic
 
 | Variable               | Required | Default                                                              | Description                              |
 |-------------------------|----------|------------------------------------------------------------------------|-------------------------------------------|
-| `DEFAULT_PROVIDER`      | No       | `claude`                                                               | Provider for `/api/ask` and `/api/ask/rag` when a request has no `provider`: `claude` or `gemini`. Any other value stops the app at startup |
+| `DEFAULT_PROVIDER`      | No       | `claude`                                                               | Provider for `/api/ask` and `/api/ask/rag` when a request has no `provider`: `claude`, `gemini` or `openai`. Any other value stops the app at startup |
 | `ANTHROPIC_API_KEY`     | **Yes**  | *(none)*                                                               | Your Claude API key                       |
 | `ANTHROPIC_MODEL`       | No       | `claude-opus-4-8`                                                      | Claude model used for `/api/ask`          |
 | `ANTHROPIC_MAX_TOKENS`  | No       | `2048`                                                                  | Max output tokens per request             |
 | `GEMINI_API_KEY`        | For Gemini | *(none)*                                                             | Your Gemini API key                       |
 | `GEMINI_MODEL`          | No       | `gemini-3.8-flash`                                                     | Gemini model used for `provider: gemini`. Use `gemini-3.5-flash-lite` for faster, lighter responses |
 | `GEMINI_MAX_TOKENS`     | No       | `2048`                                                                  | Max output tokens per Gemini request      |
+| `OPENAI_API_KEY`        | For OpenAI | *(none)*                                                             | Your OpenAI API key                       |
+| `OPENAI_MODEL`          | No       | `gpt-5.4-mini-2026-03-17`                                                           | OpenAI model used for `provider: openai`. Check the [OpenAI models page](https://platform.openai.com/docs/models) for a current model name |
+| `OPENAI_MAX_TOKENS`     | No       | `4096`                                                                  | Max completion tokens per OpenAI request (sent as `max_completion_tokens`), see the note below |
 | `DB_URL`                | No       | `jdbc:postgresql://localhost:5432/shop`                                | JDBC URL of the product database (RAG)    |
 | `DB_USERNAME`           | No       | `postgres`                                                             | Database user                             |
 | `DB_PASSWORD`           | No       | `secret`                                                               | Database password                         |
@@ -91,6 +100,12 @@ All configuration is environment-variable driven (see `src/main/resources/applic
 | `JWT_SECRET`            | No*      | `this-is-a-hardcoded-test-secret-key-for-dev-only-change-me-32bytes`   | HMAC signing key for JWTs (≥32 bytes)     |
 | `JWT_EXPIRATION_MS`     | No       | `3600000` (1 hour)                                                      | Issued-token lifetime in milliseconds     |
 | `SERVER_PORT`           | No       | `8080`                                                                  | HTTP port                                 |
+
+**OpenAI reasoning models and `OPENAI_MAX_TOKENS`:** some OpenAI models (the reasoning models) spend
+part of the output token budget on hidden reasoning before writing the visible answer. If the budget runs
+out first, the answer comes back empty and the API returns `502` with
+`OpenAI returned an empty response (finish reason: length)`. Raise `OPENAI_MAX_TOKENS` if that happens.
+The reported `outputTokens` include these reasoning tokens, since OpenAI bills them as output.
 
 \* The default `JWT_SECRET` is fine for local testing but **must** be overridden with a
 real, secret value before this service is exposed anywhere beyond your own machine.
@@ -114,6 +129,7 @@ If another PostgreSQL already uses port 5432 on your machine, set `DB_HOST_PORT=
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-your-key-here
 export GEMINI_API_KEY=your-gemini-api-key-here
+export OPENAI_API_KEY=your-openai-api-key-here
 mvn spring-boot:run
 ```
 
@@ -199,20 +215,30 @@ Response:
 | Field          | Description                                                                                  |
 |----------------|----------------------------------------------------------------------------------------------|
 | `response`     | The model's text answer                                                                       |
-| `provider`     | Which provider answered: `claude` or `gemini`                                                 |
+| `provider`     | Which provider answered: `claude`, `gemini` or `openai`                                       |
 | `model`        | The model that produced the answer (as reported by the provider)                              |
 | `inputTokens`  | Tokens in your prompt                                                                         |
-| `outputTokens` | Tokens generated. For Gemini this includes internal "thinking" tokens, which are billed as output |
+| `outputTokens` | Tokens generated. For Gemini and OpenAI reasoning models this includes internal "thinking"/reasoning tokens, which are billed as output |
 | `durationMs`   | Time spent waiting for the provider, in milliseconds                                          |
 
-To pick the provider per request, add `"provider": "gemini"` or `"provider": "claude"`. Without it, the
-request goes to `DEFAULT_PROVIDER` (`claude` unless you set `DEFAULT_PROVIDER=gemini` in `.env`):
+To pick the provider per request, add `"provider": "gemini"`, `"provider": "openai"` or `"provider": "claude"`
+(case-insensitive). Without it, the request goes to `DEFAULT_PROVIDER` (`claude` unless you set
+`DEFAULT_PROVIDER=gemini` or `DEFAULT_PROVIDER=openai` in `.env`):
 
 ```bash
 curl -s -X POST http://localhost:8080/api/ask \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"prompt": "Explain what a REST API is in one sentence.", "provider": "gemini"}'
+```
+
+OpenAI:
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "Explain what a REST API is in one sentence.", "provider": "openai"}'
 ```
 
 ### Error responses
@@ -222,8 +248,8 @@ curl -s -X POST http://localhost:8080/api/ask \
 | Missing/invalid/expired JWT        | `401`  | `{"error": "Unauthorized", "message": "Missing or invalid JWT Bearer token", ...}` |
 | Blank/missing `prompt` field       | `400`  | `{"error": "Bad Request", "message": "prompt: prompt must not be blank", ...}` |
 | Malformed JSON body                | `400`  | `{"error": "Bad Request", "message": "Malformed or missing JSON request body", ...}` |
-| Invalid `provider` value           | `400`  | `{"error": "Bad Request", "message": "provider: provider must be either \"claude\" or \"gemini\"", ...}` |
-| Claude/Gemini API call fails       | `502`  | `{"error": "Bad Gateway", "message": "...", ...}`                   |
+| Invalid `provider` value           | `400`  | `{"error": "Bad Request", "message": "provider: provider must be one of \"claude\", \"gemini\" or \"openai\"", ...}` |
+| Claude/Gemini/OpenAI API call fails (incl. empty response) | `502`  | `{"error": "Bad Gateway", "message": "...", ...}`                   |
 | Product database unreachable (`/api/ask/rag`) | `503`  | `{"error": "Service Unavailable", "message": "Product database is unavailable", ...}` |
 
 ## RAG endpoint
@@ -267,8 +293,9 @@ suggests contacting support. `durationMs` here covers both the database search a
    products' name, category, price in BDT, stock status and description. If nothing matched, it says
    so, which makes the model answer that it doesn't know.
 3. **Generate** — the system prompt and the customer's question go to the chosen provider:
-   `ClaudeService.ask(systemPrompt, prompt)` (Claude system prompt) or
-   `GeminiService.ask(systemPrompt, prompt)` (Gemini system instruction), and the answer is returned.
+   `ClaudeService.ask(systemPrompt, prompt)` (Claude system prompt),
+   `GeminiService.ask(systemPrompt, prompt)` (Gemini system instruction) or
+   `OpenAiService.ask(systemPrompt, prompt)` (OpenAI system message), and the answer is returned.
 
 The catalogue lives in `src/main/resources/schema.sql` (table + full-text index) and `data.sql`
 (15 seed products: shoes, shirts and bags). Both run on every startup and are safe to re-run; to add
@@ -401,7 +428,7 @@ mvn test
 - Change `JWT_SECRET` to a strong, randomly generated value (≥32 bytes) outside of local
   development, and supply it only via environment variables or a secrets manager — never
   commit it to source control.
-- `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` are read from the environment and are never logged or returned in any
+- `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` and `OPENAI_API_KEY` are read from the environment and are never logged or returned in any
   API response.
 - All endpoints run over HTTP in this sample; put a TLS-terminating proxy/load balancer in
   front of it for anything beyond local development.

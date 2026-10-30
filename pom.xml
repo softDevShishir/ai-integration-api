@@ -15,7 +15,7 @@
     <artifactId>ai-integration-api</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>ai-integration-api</name>
-    <description>Spring Boot REST API that forwards prompts to Claude or Gemini and offers a RAG endpoint over a product catalogue</description>
+    <description>Spring Boot REST API that forwards prompts to Claude, Gemini or OpenAI and offers a RAG endpoint over a product catalogue</description>
     <packaging>jar</packaging>
 
     <properties>
@@ -23,6 +23,7 @@
         <jjwt.version>0.12.6</jjwt.version>
         <anthropic-sdk.version>2.34.0</anthropic-sdk.version>
         <google-genai.version>1.79.0</google-genai.version>
+        <openai-sdk.version>4.94.0</openai-sdk.version>
     </properties>
 
     <dependencies>
@@ -92,6 +93,13 @@
             <groupId>com.google.genai</groupId>
             <artifactId>google-genai</artifactId>
             <version>${google-genai.version}</version>
+        </dependency>
+
+        <!-- Official OpenAI Java SDK -->
+        <dependency>
+            <groupId>com.openai</groupId>
+            <artifactId>openai-java</artifactId>
+            <version>${openai-sdk.version}</version>
         </dependency>
 
         <!-- Test -->
