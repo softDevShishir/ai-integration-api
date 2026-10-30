@@ -7,8 +7,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 
 /**
  * Smoke test: verifies the full application context (security config,
- * controllers, Anthropic/Gemini client beans, DataSource) wires up correctly
- * without requiring a real ANTHROPIC_API_KEY or a running PostgreSQL.
+ * controllers, Anthropic/Gemini/OpenAI client beans, DataSource) wires up correctly
+ * without requiring real API keys or a running PostgreSQL.
  *
  * <p>SQL init is disabled so startup never opens a database connection (the
  * connection pool is lazy), and RetrievalService is mocked so nothing queries it.

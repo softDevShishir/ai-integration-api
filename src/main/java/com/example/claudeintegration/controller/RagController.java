@@ -34,10 +34,9 @@ public class RagController {
     @PostMapping("/ask/rag")
     public ResponseEntity<AskResponse> askRag(@Valid @RequestBody AskRequest request) {
         String provider = providerResolver.resolve(request.provider());
-        boolean claude = ProviderResolver.CLAUDE.equals(provider);
 
         long start = System.nanoTime();
-        AiResponse answer = ragService.answer(request.prompt(), claude);
+        AiResponse answer = ragService.answer(request.prompt(), provider);
         long durationMs = (System.nanoTime() - start) / 1_000_000;
 
         return ResponseEntity.ok(new AskResponse(

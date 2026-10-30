@@ -37,6 +37,10 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       GEMINI_MAX_TOKENS: ${GEMINI_MAX_TOKENS:-2048}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Check https://platform.openai.com/docs/models for a current model name.
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini-2026-03-17}
+      OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-4096}
       JWT_SECRET: ${JWT_SECRET:-this-is-a-hardcoded-test-secret-key-for-dev-only-change-me-32bytes}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
       # Inside the compose network the database host is the `postgres` service, not localhost,
