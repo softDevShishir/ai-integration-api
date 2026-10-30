@@ -15,7 +15,7 @@ WORKDIR /app
 
 RUN addgroup -S spring && adduser -S spring -G spring
 
-COPY --from=build /app/target/claude-integration-api.jar app.jar
+COPY --from=build /app/target/ai-integration-api.jar app.jar
 RUN chown spring:spring app.jar
 USER spring
 

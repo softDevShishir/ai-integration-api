@@ -1,8 +1,10 @@
-# claude-integration-api
+# ai-integration-api
 
 A Spring Boot 3 (Java 21) REST API that authenticates requests with JWT and forwards
-prompts to the [Claude API](https://docs.claude.com/) via the official
-[Anthropic Java SDK](https://github.com/anthropics/anthropic-sdk-java).
+prompts to Claude (via the official [Anthropic Java SDK](https://github.com/anthropics/anthropic-sdk-java))
+or Gemini (via the [Google Gen AI SDK](https://github.com/googleapis/java-genai)), selectable per
+request. It also offers a retrieval-augmented generation (RAG) endpoint that answers questions
+from a PostgreSQL product catalogue.
 
 ## Features
 
@@ -17,7 +19,7 @@ prompts to the [Claude API](https://docs.claude.com/) via the official
 ## Project structure
 
 ```
-claude-integration-api/
+ai-integration-api/
 ├── pom.xml
 ├── Dockerfile
 ├── docker-compose.yml
@@ -121,7 +123,7 @@ The API is now listening on `http://localhost:8080`.
 
 ```bash
 mvn clean package
-java -jar target/claude-integration-api.jar
+java -jar target/ai-integration-api.jar
 ```
 
 ## Running with Docker Compose
@@ -148,8 +150,8 @@ Compose loads `.env` via `env_file:` in `docker-compose.yml`, so it fails with
 ## Running with plain Docker
 
 ```bash
-docker build -t claude-integration-api .
-docker run --rm -p 8080:8080 --env-file .env claude-integration-api
+docker build -t ai-integration-api .
+docker run --rm -p 8080:8080 --env-file .env ai-integration-api
 ```
 
 `--env-file` passes every `KEY=value` line from `.env` into the container. Write values without
@@ -354,7 +356,7 @@ curl -s -X POST http://localhost:8080/api/ask \
 curl -s -X POST http://localhost:8080/api/ask \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"prompt": "Hello", "provider": "openai"}'
+  -d '{"prompt": "Hello", "provider": "unknown"}'
 ```
 
 Add `-w '\nHTTP %{http_code}\n'` to any command to also print the status code.

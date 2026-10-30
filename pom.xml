@@ -12,10 +12,10 @@
     </parent>
 
     <groupId>com.example</groupId>
-    <artifactId>claude-integration-api</artifactId>
+    <artifactId>ai-integration-api</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>claude-integration-api</name>
-    <description>Spring Boot REST API that integrates with the Claude API</description>
+    <name>ai-integration-api</name>
+    <description>Spring Boot REST API that forwards prompts to Claude or Gemini and offers a RAG endpoint over a product catalogue</description>
     <packaging>jar</packaging>
 
     <properties>
@@ -108,7 +108,7 @@
     </dependencies>
 
     <build>
-        <finalName>claude-integration-api</finalName>
+        <finalName>ai-integration-api</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

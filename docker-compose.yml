@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16
-    container_name: claude-integration-postgres
+    container_name: ai-integration-postgres
     environment:
       POSTGRES_DB: shop
       POSTGRES_USER: ${DB_USERNAME:-postgres}
@@ -19,10 +19,10 @@ services:
       timeout: 5s
       retries: 10
 
-  claude-integration-api:
+  ai-integration-api:
     build: .
-    image: claude-integration-api:latest
-    container_name: claude-integration-api
+    image: ai-integration-api:latest
+    container_name: ai-integration-api
     ports:
       - "8080:8080"
     # Pass every variable from the local, git-ignored .env file into the container.
