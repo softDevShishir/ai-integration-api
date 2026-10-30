@@ -4,9 +4,11 @@ import com.example.claudeintegration.exception.GeminiApiException;
 import com.google.genai.Client;
 import com.google.genai.errors.ApiException;
 import com.google.genai.errors.GenAiIOException;
+import com.google.genai.types.Content;
 import com.google.genai.types.GenerateContentConfig;
 import com.google.genai.types.GenerateContentResponse;
 import com.google.genai.types.GenerateContentResponseUsageMetadata;
+import com.google.genai.types.Part;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,9 +43,24 @@ public class GeminiService {
      * @throws GeminiApiException if the call to Gemini fails for any reason
      */
     public AiResponse ask(String prompt) {
-        GenerateContentConfig config = GenerateContentConfig.builder()
-                .maxOutputTokens(maxTokens)
-                .build();
+        return ask(null, prompt);
+    }
+
+    /**
+     * Same as {@link #ask(String)}, but also sends {@code systemPrompt} as the
+     * Gemini system instruction (ignored when null or blank).
+     *
+     * @throws GeminiApiException if the call to Gemini fails for any reason
+     */
+    public AiResponse ask(String systemPrompt, String prompt) {
+        GenerateContentConfig.Builder builder = GenerateContentConfig.builder()
+                .maxOutputTokens(maxTokens);
+
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            builder.systemInstruction(Content.fromParts(Part.fromText(systemPrompt)));
+        }
+
+        GenerateContentConfig config = builder.build();
 
         try {
             GenerateContentResponse response = client.models.generateContent(model, prompt, config);

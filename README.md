@@ -6,10 +6,11 @@ prompts to the [Claude API](https://docs.claude.com/) via the official
 
 ## Features
 
-- `POST /api/ask` — accepts `{"prompt": "...", "provider": "claude"|"gemini"}`, calls Claude (default) or Gemini, returns the answer plus provider, model, token counts and timing
+- `POST /api/ask` — accepts `{"prompt": "...", "provider": "claude"|"gemini"}`, calls Claude or Gemini (default set by `DEFAULT_PROVIDER`, Claude out of the box), returns the answer plus provider, model, token counts and timing
+- `POST /api/ask/rag` — answers customer questions from a PostgreSQL product catalogue using retrieval-augmented generation (see [RAG endpoint](#rag-endpoint))
 - JWT Bearer authentication on every endpoint except token issuance
 - `POST /api/auth/token` — issues a test JWT (demo-only helper, see [Security notes](#security-notes))
-- Centralized error handling: `400` for bad input, `401` for missing/invalid tokens, `502` for Claude/Gemini API failures
+- Centralized error handling: `400` for bad input, `401` for missing/invalid tokens, `502` for Claude/Gemini API failures, `503` when the product database is unreachable
 - Dockerfile + docker-compose for containerized local/deployment use
 - `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` and JWT secret are read from environment variables — nothing sensitive is hardcoded for production use
 
@@ -30,8 +31,9 @@ claude-integration-api/
     │   │   └── GeminiConfig.java           # Gemini Client bean (reads GEMINI_API_KEY)
     │   ├── controller/
     │   │   ├── AskController.java          # POST /api/ask
+    │   │   ├── RagController.java          # POST /api/ask/rag
     │   │   └── AuthController.java         # POST /api/auth/token (demo helper)
-    │   ├── dto/                            # Request/response records
+    │   ├── dto/                            # Request/response records (incl. Product)
     │   ├── exception/
     │   │   ├── ClaudeApiException.java
     │   │   ├── GeminiApiException.java
@@ -41,10 +43,20 @@ claude-integration-api/
     │   │   ├── JwtAuthenticationFilter.java
     │   │   └── RestAuthenticationEntryPoint.java # JSON 401 responses
     │   └── service/
-    │       ├── ClaudeService.java          # Wraps the Anthropic SDK call
-    │       └── GeminiService.java          # Wraps the Google Gen AI SDK call
+    │       ├── ClaudeService.java          # Wraps the Anthropic SDK call (optional system prompt)
+    │       ├── GeminiService.java          # Wraps the Google Gen AI SDK call (optional system prompt)
+    │       ├── ProviderResolver.java       # Request provider, else DEFAULT_PROVIDER
+    │       ├── RetrievalService.java       # PostgreSQL full-text product search
+    │       └── RagService.java             # Retrieve -> build system prompt -> ask Gemini/Claude
+    ├── main/resources/
+    │   ├── application.properties
+    │   ├── schema.sql                      # products table + full-text index
+    │   └── data.sql                        # 15 seed products (prices in BDT)
     └── test/java/com/example/claudeintegration/
         ├── ClaudeIntegrationApiApplicationTests.java
+        ├── controller/RagControllerTest.java
+        ├── service/RagServiceTest.java
+        ├── service/ProviderResolverTest.java
         └── security/JwtServiceTest.java
 ```
 
@@ -54,6 +66,7 @@ claude-integration-api/
 - Maven 3.9+ (or use Docker, which doesn't require a local Maven install)
 - An [Anthropic API key](https://console.anthropic.com/)
 - A [Gemini API key](https://aistudio.google.com/apikey) (only needed for `"provider": "gemini"`)
+- PostgreSQL 12+ with a `shop` database — the app connects to it on startup. `docker compose` starts one for you
 - Docker + Docker Compose (optional, for containerized runs)
 
 ## Configuration
@@ -62,12 +75,17 @@ All configuration is environment-variable driven (see `src/main/resources/applic
 
 | Variable               | Required | Default                                                              | Description                              |
 |-------------------------|----------|------------------------------------------------------------------------|-------------------------------------------|
+| `DEFAULT_PROVIDER`      | No       | `claude`                                                               | Provider for `/api/ask` and `/api/ask/rag` when a request has no `provider`: `claude` or `gemini`. Any other value stops the app at startup |
 | `ANTHROPIC_API_KEY`     | **Yes**  | *(none)*                                                               | Your Claude API key                       |
 | `ANTHROPIC_MODEL`       | No       | `claude-opus-4-8`                                                      | Claude model used for `/api/ask`          |
 | `ANTHROPIC_MAX_TOKENS`  | No       | `2048`                                                                  | Max output tokens per request             |
 | `GEMINI_API_KEY`        | For Gemini | *(none)*                                                             | Your Gemini API key                       |
 | `GEMINI_MODEL`          | No       | `gemini-3.8-flash`                                                     | Gemini model used for `provider: gemini`. Use `gemini-3.5-flash-lite` for faster, lighter responses |
 | `GEMINI_MAX_TOKENS`     | No       | `2048`                                                                  | Max output tokens per Gemini request      |
+| `DB_URL`                | No       | `jdbc:postgresql://localhost:5432/shop`                                | JDBC URL of the product database (RAG)    |
+| `DB_USERNAME`           | No       | `postgres`                                                             | Database user                             |
+| `DB_PASSWORD`           | No       | `secret`                                                               | Database password                         |
+| `DB_HOST_PORT`          | No       | `5432`                                                                  | Host port docker compose publishes PostgreSQL on (change if 5432 is taken) |
 | `JWT_SECRET`            | No*      | `this-is-a-hardcoded-test-secret-key-for-dev-only-change-me-32bytes`   | HMAC signing key for JWTs (≥32 bytes)     |
 | `JWT_EXPIRATION_MS`     | No       | `3600000` (1 hour)                                                      | Issued-token lifetime in milliseconds     |
 | `SERVER_PORT`           | No       | `8080`                                                                  | HTTP port                                 |
@@ -80,6 +98,16 @@ For local runs, copy `.env.example` to `.env` and fill in your keys. Both `mvn s
 Variables exported in your shell take precedence over `.env`. `.env` is git-ignored — never commit it.
 
 ## Running locally with Maven
+
+The app needs PostgreSQL at `DB_URL` on startup (it creates and seeds the `products` table). The easiest
+way is to start only the database from docker compose:
+
+```bash
+docker compose up -d postgres
+```
+
+If another PostgreSQL already uses port 5432 on your machine, set `DB_HOST_PORT=5433` and
+`DB_URL=jdbc:postgresql://localhost:5433/shop` in `.env` first.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-your-key-here
@@ -107,6 +135,11 @@ cp .env.example .env   # then edit .env and fill in your keys
 ```bash
 docker compose up --build
 ```
+
+This starts two containers: `postgres` (PostgreSQL 16 with a persistent `postgres-data` volume and a
+`pg_isready` healthcheck) and the app, which waits until the database is healthy. Inside compose the
+app always connects to `jdbc:postgresql://postgres:5432/shop`, whatever `DB_URL` says in `.env`.
+To wipe the database and re-seed from scratch: `docker compose down -v`.
 
 Compose loads `.env` via `env_file:` in `docker-compose.yml`, so it fails with
 `env file .env not found` if the file is missing. After editing `.env`, restart with
@@ -170,7 +203,8 @@ Response:
 | `outputTokens` | Tokens generated. For Gemini this includes internal "thinking" tokens, which are billed as output |
 | `durationMs`   | Time spent waiting for the provider, in milliseconds                                          |
 
-To use Gemini instead, add `"provider": "gemini"` (omit it, or use `"claude"`, for Claude):
+To pick the provider per request, add `"provider": "gemini"` or `"provider": "claude"`. Without it, the
+request goes to `DEFAULT_PROVIDER` (`claude` unless you set `DEFAULT_PROVIDER=gemini` in `.env`):
 
 ```bash
 curl -s -X POST http://localhost:8080/api/ask \
@@ -188,6 +222,55 @@ curl -s -X POST http://localhost:8080/api/ask \
 | Malformed JSON body                | `400`  | `{"error": "Bad Request", "message": "Malformed or missing JSON request body", ...}` |
 | Invalid `provider` value           | `400`  | `{"error": "Bad Request", "message": "provider: provider must be either \"claude\" or \"gemini\"", ...}` |
 | Claude/Gemini API call fails       | `502`  | `{"error": "Bad Gateway", "message": "...", ...}`                   |
+| Product database unreachable (`/api/ask/rag`) | `503`  | `{"error": "Service Unavailable", "message": "Product database is unavailable", ...}` |
+
+## RAG endpoint
+
+`POST /api/ask/rag` answers customer questions using **only** the products stored in PostgreSQL, instead
+of the model's general knowledge. It takes the same request body and returns the same response shape as
+`/api/ask`, and also requires a JWT. Provider selection works the same way too: the request's `provider`
+if given, otherwise `DEFAULT_PROVIDER` (Claude by default).
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask/rag \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "Do you have waterproof backpacks for travel? How much are they?"}'
+```
+
+Response (example):
+
+```json
+{
+  "response": "Yes — the Waterproof Travel Backpack (35 litres, USB charging port, laptop sleeve) costs 3290.00 BDT and is in stock.",
+  "provider": "claude",
+  "model": "claude-opus-4-8",
+  "inputTokens": 412,
+  "outputTokens": 38,
+  "durationMs": 2150
+}
+```
+
+Ask about something the store doesn't sell (e.g. `"Do you sell watches?"`) and it says it doesn't know and
+suggests contacting support. `durationMs` here covers both the database search and the model call.
+
+### How it works: retrieve → augment → generate
+
+1. **Retrieve** — `RetrievalService` runs a PostgreSQL full-text search over each product's name,
+   description and category (`to_tsvector` / `plainto_tsquery`, ranked by `ts_rank`) and returns the
+   top 5 matches. Any matching word counts, so natural questions like *"Do you have running shoes?"*
+   still find products; products matching more of the words rank higher.
+2. **Augment** — `RagService` builds a system prompt: fixed instructions (*"You are the assistant for an
+   online store. Answer ONLY using the product information below…"*) followed by the retrieved
+   products' name, category, price in BDT, stock status and description. If nothing matched, it says
+   so, which makes the model answer that it doesn't know.
+3. **Generate** — the system prompt and the customer's question go to the chosen provider:
+   `ClaudeService.ask(systemPrompt, prompt)` (Claude system prompt) or
+   `GeminiService.ask(systemPrompt, prompt)` (Gemini system instruction), and the answer is returned.
+
+The catalogue lives in `src/main/resources/schema.sql` (table + full-text index) and `data.sql`
+(15 seed products: shoes, shirts and bags). Both run on every startup and are safe to re-run; to add
+products, insert rows into the `products` table — the search index updates automatically.
 
 ## Full local test with curl
 
@@ -232,7 +315,16 @@ curl -s -X POST http://localhost:8080/api/ask \
   -d '{"prompt": "Say hello in one sentence.", "provider": "gemini"}'
 ```
 
-Expected for both: `{"response":"...","provider":"...","model":"...","inputTokens":...,"outputTokens":...,"durationMs":...}`
+### 4b. Ask about products (RAG)
+
+```bash
+curl -s -X POST http://localhost:8080/api/ask/rag \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"prompt": "Do you have running shoes under 4000 BDT?"}'
+```
+
+Expected for all three: `{"response":"...","provider":"...","model":"...","inputTokens":...,"outputTokens":...,"durationMs":...}`
 
 To see just the stats without the long answer text (requires [`jq`](https://jqlang.org/)):
 

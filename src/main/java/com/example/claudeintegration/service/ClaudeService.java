@@ -43,11 +43,26 @@ public class ClaudeService {
      * @throws ClaudeApiException if the call to Claude fails for any reason
      */
     public AiResponse ask(String prompt) {
-        MessageCreateParams params = MessageCreateParams.builder()
+        return ask(null, prompt);
+    }
+
+    /**
+     * Same as {@link #ask(String)}, but also sends {@code systemPrompt} as the
+     * Claude system prompt (ignored when null or blank).
+     *
+     * @throws ClaudeApiException if the call to Claude fails for any reason
+     */
+    public AiResponse ask(String systemPrompt, String prompt) {
+        MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(Model.of(model))
                 .maxTokens(maxTokens)
-                .addUserMessage(prompt)
-                .build();
+                .addUserMessage(prompt);
+
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            builder.system(systemPrompt);
+        }
+
+        MessageCreateParams params = builder.build();
 
         try {
             Message response = client.messages().create(params);
